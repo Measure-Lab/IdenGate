@@ -14,4 +14,3 @@ We also provide the original CSV files used to generate all figures.
 
 MedMNIST: https://medmnist.com/ and https://zenodo.org/records/10519652
 
-![Uploading image.png…]()
