@@ -1,0 +1,2 @@
+test_loss,test_acc,test_acc_c0,test_acc_c1,test_acc_c2,test_acc_c3,test_acc_c4,test_auc_macro,test_auc_weighted,test_auc_c0,test_auc_c1,test_auc_c2,test_auc_c3,test_auc_c4
+1.223856,56.750,77.011,28.261,66.304,25.000,10.000,0.742837,0.774191,0.848108,0.686686,0.698828,0.762801,0.717763
