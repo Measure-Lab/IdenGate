@@ -1,0 +1,6 @@
+numpy==1.26.4
+scikit-learn==1.6.1
+thop==0.1.1-2209072238
+torch==2.8.0+cu129
+torchvision==0.23.0+cu129
+tqdm==4.65.2
