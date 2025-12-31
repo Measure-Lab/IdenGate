@@ -12,6 +12,8 @@ In particular, noise_translation provides the scripts for generating plots under
 
 We also provide the original CSV files used to generate all figures.
 
+![Figure 1](figure1.png)
+
 MedMNIST: https://medmnist.com/ and https://zenodo.org/records/10519652
 
 Complete code including the weight files: https://drive.google.com/file/d/1XxHp0Ru-RagJBk7oaZyKUAuaZXVrynEq/view?usp=sharing
