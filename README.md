@@ -8,5 +8,5 @@ We recommend that you download the complete code and reproduce the results using
 
 MedMNIST: https://medmnist.com/ and https://zenodo.org/records/10519652
 
-Complete code including the weight files: https://drive.google.com/file/d/1XxHp0Ru-RagJBk7oaZyKUAuaZXVrynEq/view?usp=sharing
+Complete code including the weight files and retina dataset: https://drive.google.com/file/d/1XxHp0Ru-RagJBk7oaZyKUAuaZXVrynEq/view?usp=sharing
 
