@@ -8,7 +8,7 @@ Deep models can be confident for the wrong reasons: under shortcut learning, int
 
 ![Figure 4](3.png)
 
-![Figure 5](4.png)
+![Figure 5](4.jpg)
 
 
 We recommend that you download the complete code and reproduce the results using the scripts in the eval folder. We provide CSV files for both the training process and the evaluation process, as well as the trained weight files.
