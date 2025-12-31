@@ -10,9 +10,9 @@ The eval directory is provided to facilitate reproducibility. It includes separa
 The figure directory contains the code and data used for figure generation.
 In particular, noise_translation provides the scripts for generating plots under noise perturbation and pixel-level translation, while risk_reliable includes the code for producing risk–coverage and reliability-related figures.
 
-We also provide the original CSV files used to generate all figures.
-
 ![Figure 1](figure1.png)
+
+We recommend that you download the complete code and reproduce the results using the scripts in the eval folder. We provide CSV files for both the training process and the evaluation process, as well as the trained weight files.
 
 MedMNIST: https://medmnist.com/ and https://zenodo.org/records/10519652
 
