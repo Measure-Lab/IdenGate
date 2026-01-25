@@ -36,6 +36,52 @@ pandas==2.3.3
 matplotlib==3.9.4
 ```
 Installation time may vary depending on network conditions; under the reported environment, the installation completes within 15 minutes.
+```text
+# ==============================
+# 1. Create conda environment
+# ==============================
+conda create -n idengate python=3.9 -y
+conda activate idengate
+
+
+# ==============================
+# 2. Install PyTorch (CUDA 12.9)
+# ==============================
+pip install torch==2.8.0+cu129 torchvision==0.23.0+cu129 \
+  --index-url https://download.pytorch.org/whl/cu129
+
+
+# ==============================
+# 3. Install other dependencies
+# ==============================
+pip install \
+  numpy==1.26.4 \
+  scikit-learn==1.6.1 \
+  thop==0.1.1-2209072238 \
+  tqdm==4.65.2 \
+  pandas==2.3.3 \
+  matplotlib==3.9.4
+
+
+# ==============================
+# 4. Clone IdenGate repository
+# ==============================
+git clone https://github.com/Measure-Lab/IdenGate.git
+cd IdenGate
+
+
+# ==============================
+# 5. Register project path (NO setup.py)
+# ==============================
+export PYTHONPATH=$(pwd):$PYTHONPATH
+
+
+# ==============================
+# 6. Run evaluation
+# ==============================
+python eval/eval_retina.py
+
+```
 
 ## 📦 Data Preparation and Model Evaluation
 **MedMNIST**: The dataset can be found **[here](https://medmnist.com/)**.
