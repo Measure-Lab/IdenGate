@@ -56,7 +56,7 @@ Due to environmental differences, the generated .csv results may not be identica
 
 
 Please note that the main codebase is developed and trained in a Linux environment, using two NVIDIA RTX 5090 GPUs.
-For demonstration convenience, we adapt the eval.py script to be compatible with Windows environments.
+For demonstration convenience, we adapt the eval.py script to be compatible with a Windows environment.
 
 
 
