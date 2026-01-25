@@ -82,6 +82,7 @@ export PYTHONPATH=$(pwd):$PYTHONPATH
 python eval/eval_retina.py
 
 ```
+Please note that the main codebase is developed and trained in a Linux environment, using two NVIDIA RTX 5090 GPUs. For demonstration convenience, we adapt the eval.py script to be compatible with a Windows environment.
 
 ## 📦 Data Preparation and Model Evaluation
 **MedMNIST**: The dataset can be found **[here](https://medmnist.com/)**.
@@ -107,9 +108,6 @@ project_root/
 │   ├── cmanet_blood_dp_best.pth     # Pretrained model weights
 │   └── eval_results_example.csv     # Reference evaluation output
 ```
-
-Please note that the main codebase is developed and trained in a Linux environment, using **two** NVIDIA RTX 5090 GPUs.
-For demonstration convenience, we adapt the eval.py script to be compatible with a Windows environment.
 
 
 
