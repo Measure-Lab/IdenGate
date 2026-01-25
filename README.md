@@ -28,14 +28,7 @@ Deep models can be confident for the wrong reasons: under shortcut learning, int
 
 **PAD-UFES-20**: The dataset can be found **[here](https://data.mendeley.com/datasets/zr7vgbcyr2/1)**.
 
-
 **Retinamnist_224**: The dataset can be found **[here](https://drive.google.com/file/d/1073VltJ3iwURdtSqMyG7qlIKpkakfp7S/view?usp=sharing)**.
-
-Fetal-Planes-DB:https://zenodo.org/records/3904280?utm_source=chatgpt.com
-
-CPN X-ray:https://data.mendeley.com/datasets/dvntn9yhd2/1
-
-PAD-UFES-20:https://data.mendeley.com/datasets/zr7vgbcyr2/1
 
 We provide RetinaMNIST_224 as a lightweight demonstration dataset.
 To run the demo, simply place the dataset in the eval folder and execute eval.py.
