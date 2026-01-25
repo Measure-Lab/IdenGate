@@ -20,6 +20,13 @@ Deep models can be confident for the wrong reasons: under shortcut learning, int
 
 **Retinamnist_224**: The dataset can be found **[here](https://drive.google.com/file/d/1073VltJ3iwURdtSqMyG7qlIKpkakfp7S/view?usp=sharing)**.
 
+We provide RetinaMNIST_224 as a lightweight demonstration dataset.
+To run the demo, simply place the dataset in the eval folder and execute eval.py.
+An example output file, eval_results_example.csv, is also provided for reference.
+
+Please note that the main codebase is developed and trained in a Linux environment, using two NVIDIA RTX 5090 GPUs.
+For demonstration convenience, we adapt the eval.py script to be compatible with Windows environments.
+
 
 ## 🛠 Setup
 
