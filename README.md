@@ -37,6 +37,5 @@ An example output file, eval_results_example.csv, is also provided for reference
 Please note that the main codebase is developed and trained in a Linux environment, using two NVIDIA RTX 5090 GPUs.
 For demonstration convenience, we adapt the eval.py script to be compatible with Windows environments.
 
-## 📦 Notes
 
 
