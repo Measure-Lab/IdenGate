@@ -40,7 +40,7 @@ Installation time may vary depending on network conditions; under the reported e
 # ==============================
 # 1. Create conda environment
 # ==============================
-conda create -n idengate python=3.9 -y
+conda create -n idengate python=3.10 -y
 conda activate idengate
 
 
