@@ -32,6 +32,9 @@ thop==0.1.1-2209072238
 torch==2.8.0+cu129
 torchvision==0.23.0+cu129
 tqdm==4.65.2
+pandas==2.3.3
+matplotlib==3.9.4
+
 ```
 
 ## 📦 Data Preparation and Model Evaluation
