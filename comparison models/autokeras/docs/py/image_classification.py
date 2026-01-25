@@ -1,0 +1,136 @@
+"""shell
+export KERAS_BACKEND="torch"
+pip install autokeras
+"""
+
+from keras.datasets import mnist
+
+import autokeras as ak
+
+"""
+## A Simple Example
+The first step is to prepare your data. Here we use the MNIST dataset as an
+example
+"""
+
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+x_train = x_train[:100]
+y_train = y_train[:100]
+x_test = x_test[:100]
+y_test = y_test[:100]
+print(x_train.shape)  # (60000, 28, 28)
+print(y_train.shape)  # (60000,)
+print(y_train[:3])  # array([7, 2, 1], dtype=uint8)
+
+"""
+The second step is to run the ImageClassifier.
+It is recommended have more trials for more complicated datasets.
+This is just a quick demo of MNIST, so we set max_trials to 1.
+For the same reason, we set epochs to 10.
+You can also leave the epochs unspecified for an adaptive number of epochs.
+"""
+
+# Initialize the image classifier.
+clf = ak.ImageClassifier(overwrite=True, max_trials=1)
+# Feed the image classifier with training data.
+clf.fit(x_train, y_train, epochs=1)
+
+
+# Predict with the best model.
+predicted_y = clf.predict(x_test)
+print(predicted_y)
+
+
+# Evaluate the best model with testing data.
+print(clf.evaluate(x_test, y_test))
+
+"""
+## Validation Data
+By default, AutoKeras use the last 20% of training data as validation data. As
+shown in the example below, you can use validation_split to specify the
+percentage.
+"""
+
+clf.fit(
+    x_train,
+    y_train,
+    # Split the training data and use the last 15% as validation data.
+    validation_split=0.15,
+    epochs=1,
+)
+
+"""
+You can also use your own validation set instead of splitting it from the
+training data with validation_data.
+"""
+
+split = 50000
+x_val = x_train[split:]
+y_val = y_train[split:]
+x_train = x_train[:split]
+y_train = y_train[:split]
+clf.fit(
+    x_train,
+    y_train,
+    # Use your own validation set.
+    validation_data=(x_val, y_val),
+    epochs=1,
+)
+
+"""
+## Customized Search Space
+For advanced users, you may customize your search space by using AutoModel
+instead of ImageClassifier. You can configure the ImageBlock for some
+high-level configurations, e.g., block_type for the type of neural network to
+search, normalize for whether to do data normalization, augment for whether to
+do data augmentation. You can also do not specify these arguments, which would
+leave the different choices to be tuned automatically. See the following
+example for detail.
+"""
+
+input_node = ak.ImageInput()
+output_node = ak.ImageBlock(
+    # Only search ResNet architectures.
+    block_type="resnet",
+    # Normalize the dataset.
+    normalize=True,
+    # Do not do data augmentation.
+    augment=False,
+)(input_node)
+output_node = ak.ClassificationHead()(output_node)
+clf = ak.AutoModel(
+    inputs=input_node, outputs=output_node, overwrite=True, max_trials=1
+)
+clf.fit(x_train, y_train, epochs=1)
+
+"""
+The usage of AutoModel is similar to the functional API of Keras. Basically, you
+are building a graph, whose edges are blocks and the nodes are intermediate
+outputs of blocks. To add an edge from input_node to output_node with
+output_node = ak.[some_block]([block_args])(input_node).
+
+You can even also use more fine grained blocks to customize the search space
+even further. See the following example.
+"""
+
+input_node = ak.ImageInput()
+output_node = ak.Normalization()(input_node)
+output_node = ak.ImageAugmentation(horizontal_flip=False)(output_node)
+output_node = ak.ResNetBlock(version="v2")(output_node)
+output_node = ak.ClassificationHead()(output_node)
+clf = ak.AutoModel(
+    inputs=input_node, outputs=output_node, overwrite=True, max_trials=1
+)
+clf.fit(x_train, y_train, epochs=1)
+
+"""
+## Reference
+[ImageClassifier](/image_classifier),
+[AutoModel](/auto_model/#automodel-class),
+[ImageBlock](/block/#imageblock-class),
+[Normalization](/block/#normalization-class),
+[ImageAugmentation](/block/#image-augmentation-class),
+[ResNetBlock](/block/#resnetblock-class),
+[ImageInput](/node/#imageinput-class),
+[ClassificationHead](/block/#classificationhead-class).
+"""
