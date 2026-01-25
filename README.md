@@ -53,7 +53,13 @@ To run the demo, simply place the RetinaMNIST_224 in the **eval folder** and exe
 An example output file, **eval_results_example.csv**, is also provided for reference.
 Under the described experimental environment, the execution time of eval.py is under 60 seconds.
 Due to environmental differences, the generated .csv results may not be identical to eval_results_example.csv.
-
+```text
+project_root/
+├── eval/
+│   ├── eval.py                     # Evaluation script (demo)
+│   ├── RetinaMNIST_224.npz          # Lightweight demo dataset
+│   └── eval_results_example.csv    # Reference evaluation output
+```
 
 Please note that the main codebase is developed and trained in a Linux environment, using two NVIDIA RTX 5090 GPUs.
 For demonstration convenience, we adapt the eval.py script to be compatible with a Windows environment.
