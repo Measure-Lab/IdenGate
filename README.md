@@ -69,19 +69,6 @@ pip install \
 # ==============================
 git clone https://github.com/Measure-Lab/IdenGate.git
 cd IdenGate
-
-
-# ==============================
-# 5. Register project path
-# ==============================
-export PYTHONPATH=$(pwd):$PYTHONPATH
-
-
-# ==============================
-# 6. Run evaluation
-# ==============================
-python eval/eval_retina.py
-
 ```
 Please note that the main codebase is developed and trained in a Linux environment, using two NVIDIA RTX 5090 GPUs. For demonstration convenience, we adapt the eval.py script to be compatible with a Windows environment.
 
