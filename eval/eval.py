@@ -1,3 +1,5 @@
+# The code is mainly designed for Linux environments, but this version is provided to enable convenient preliminary testing on Windows.
+
 import os
 import csv
 import random
@@ -15,7 +17,9 @@ NUM_CLASSES = 5
 N_CHANNELS = 3
 IMG_SIZE = 224
 BATCH_SIZE = 128
-NUM_WORKERS = 8
+
+IS_WINDOWS = (os.name == "nt")
+NUM_WORKERS = 0 if IS_WINDOWS else 8
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 NPZ_PATH = os.path.join(SCRIPT_DIR, "retinamnist_224.npz")
@@ -23,7 +27,6 @@ WEIGHT_PTH = os.path.join(SCRIPT_DIR, "cmanet_blood_dp_best.pth")
 OUT_CSV = os.path.join(SCRIPT_DIR, "eval_results.csv")
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 AMP = (DEVICE.type == "cuda")
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -45,7 +48,18 @@ def set_seed(seed=42):
 set_seed(42)
 
 
-class BloodNPZDataset(Dataset):
+
+class RepeatTo3Channels:
+    """Make 1-channel tensor -> 3-channel by repeating. Pickle-safe."""
+    def __call__(self, t: torch.Tensor) -> torch.Tensor:
+        # t: [C, H, W]
+        if t.dim() == 3 and t.shape[0] == 1:
+            return t.repeat(3, 1, 1)
+        return t
+
+
+
+class NPZDataset(Dataset):
     def __init__(self, images, labels, aug=False, img_size=IMG_SIZE):
         self.images = images
 
@@ -70,7 +84,7 @@ class BloodNPZDataset(Dataset):
             transforms.ToPILImage(),
             *aug_list,
             transforms.ToTensor(),
-            transforms.Lambda(lambda t: t.repeat(3, 1, 1) if t.dim() == 3 and t.shape[0] == 1 else t),
+            RepeatTo3Channels(),
             transforms.Normalize([0.5] * 3, [0.5] * 3),
         ])
 
@@ -80,6 +94,7 @@ class BloodNPZDataset(Dataset):
     def __getitem__(self, i):
         img = self.images[i]
 
+        # handle CHW -> HWC if needed
         if img.ndim == 3 and img.shape[0] in (1, 3) and img.shape[-1] not in (1, 3):
             img = np.transpose(img, (1, 2, 0))
 
@@ -95,6 +110,9 @@ def load_retina_npz_test(npz_path):
     return x_te, y_te
 
 
+# ======================
+# Model
+# ======================
 class ALME(nn.Module):
     def __init__(self, dim, reduction=16):
         super().__init__()
@@ -134,7 +152,7 @@ class ConditionedSelfAttention(nn.Module):
 
     def forward(self, x):
         b, c, h, w = x.shape
-        seq = x.view(b, c, h * w).permute(2, 0, 1)
+        seq = x.view(b, c, h * w).permute(2, 0, 1)  # [HW, B, C]
 
         if not self.use_conditioned:
             out = self.encoder(seq)
@@ -206,6 +224,9 @@ class CMANet(nn.Module):
         return self.fc(x)
 
 
+# ======================
+# Eval
+# ======================
 @torch.no_grad()
 def evaluate(model, loader, criterion, device, use_amp: bool):
     model.eval()
@@ -221,7 +242,8 @@ def evaluate(model, loader, criterion, device, use_amp: bool):
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
 
-        with autocast(device_type='cuda', enabled=use_amp):
+        # CPU/GPU-safe autocast
+        with autocast(device_type=device.type, enabled=use_amp):
             out = model(x)
             loss = criterion(out, y)
             probs = torch.softmax(out, dim=1)
@@ -260,6 +282,7 @@ def evaluate(model, loader, criterion, device, use_amp: bool):
         else:
             all_y = all_y.squeeze()
 
+    # AUC
     try:
         C = all_probs.shape[1]
         if C == 2:
@@ -275,7 +298,7 @@ def evaluate(model, loader, criterion, device, use_amp: bool):
             auc_weighted = roc_auc_score(all_y, all_probs, multi_class='ovr', average='weighted')
             auc_per_class = roc_auc_score(all_y, all_probs, multi_class='ovr', average=None).tolist()
     except Exception as e:
-        print(f"[WARN] AUC fail：{e}")
+        print(f"[WARN] AUC failed: {e}")
         auc_macro, auc_weighted = float("nan"), float("nan")
         auc_per_class = [float("nan")] * all_probs.shape[1]
 
@@ -302,12 +325,30 @@ def save_csv(path, test_loss, test_acc, per_cls_acc, auc_macro, auc_weighted, au
 def load_weights_safely(model, weight_path, device):
     ckpt = torch.load(weight_path, map_location=device)
 
-    if isinstance(ckpt, dict):
-        keys = list(ckpt.keys())
-        if len(keys) > 0 and keys[0].startswith("module."):
-            ckpt = {k.replace("module.", "", 1): v for k, v in ckpt.items()}
+    # checkpoint may be {"state_dict": ...} or raw state_dict
+    if isinstance(ckpt, dict) and "state_dict" in ckpt and isinstance(ckpt["state_dict"], dict):
+        state = ckpt["state_dict"]
+    elif isinstance(ckpt, dict):
+        state = ckpt
+    else:
+        raise ValueError("Unsupported checkpoint format.")
 
-    missing, unexpected = model.load_state_dict(ckpt, strict=False)
+    # remove DataParallel prefix
+    if len(state) > 0:
+        any_key = next(iter(state.keys()))
+        if any_key.startswith("module."):
+            state = {k.replace("module.", "", 1): v for k, v in state.items()}
+
+    def is_thop_key(k: str) -> bool:
+        return (
+            k == "total_ops" or k == "total_params" or
+            k.endswith(".total_ops") or k.endswith(".total_params")
+        )
+
+    state = {k: v for k, v in state.items() if not is_thop_key(k)}
+
+    missing, unexpected = model.load_state_dict(state, strict=False)
+
     if missing:
         print("[WARN] Missing keys (first 30):")
         for k in missing[:30]:
@@ -318,18 +359,23 @@ def load_weights_safely(model, weight_path, device):
             print("  ", k)
 
 
-if __name__ == "__main__":
+def main():
     if not os.path.exists(NPZ_PATH):
         raise FileNotFoundError(f"NPZ not found: {NPZ_PATH}")
     if not os.path.exists(WEIGHT_PTH):
         raise FileNotFoundError(f"Weight not found: {WEIGHT_PTH}")
 
     x_test, y_test = load_retina_npz_test(NPZ_PATH)
-    testset = BloodNPZDataset(x_test, y_test, aug=False)
+
+    testset = NPZDataset(x_test, y_test, aug=False)
+
     test_loader = DataLoader(
-        testset, batch_size=BATCH_SIZE, shuffle=False,
-        num_workers=NUM_WORKERS, pin_memory=(DEVICE.type == "cuda"),
-        persistent_workers=(NUM_WORKERS > 0), prefetch_factor=2
+        testset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=NUM_WORKERS,
+        pin_memory=(DEVICE.type == "cuda"),
+        persistent_workers=(NUM_WORKERS > 0),
     )
 
     model = CMANet().to(DEVICE)
@@ -358,3 +404,7 @@ if __name__ == "__main__":
 
     save_csv(OUT_CSV, test_loss, test_acc, per_cls_acc, auc_macro, auc_weighted, auc_per_class)
     print(f"\n[OK] CSV saved to: {OUT_CSV}")
+
+
+if __name__ == "__main__":
+    main()
