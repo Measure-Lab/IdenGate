@@ -56,10 +56,10 @@ Due to environmental differences, the generated .csv results may not be identica
 ```text
 project_root/
 ├── eval/
-│   ├── eval.py                     # Evaluation script (demo)
+│   ├── eval.py                      # Evaluation script (demo)
 │   ├── RetinaMNIST_224.npz          # Lightweight demo dataset
 │   ├── cmanet_blood_dp_best.pth     # Pretrained model weights
-│   └── eval_results_example.csv    # Reference evaluation output
+│   └── eval_results_example.csv     # Reference evaluation output
 ```
 
 Please note that the main codebase is developed and trained in a Linux environment, using two NVIDIA RTX 5090 GPUs.
