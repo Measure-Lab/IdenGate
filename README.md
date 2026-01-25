@@ -19,7 +19,7 @@ Deep models can be confident for the wrong reasons: under shortcut learning, int
 
 ![Figure 1](assets/results.png)
 
-## 📚 Data Preparation and Model Evaluation
+## 📦 Data Preparation and Model Evaluation
 **MedMNIST**: The dataset can be found **[here](https://medmnist.com/)**.
 
 **Fetal-Planes-DB**: The dataset can be found **[here](https://zenodo.org/records/3904280)**.
