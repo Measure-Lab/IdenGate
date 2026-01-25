@@ -10,7 +10,7 @@ It improves **calibration** and **risk–coverage**, yields more **lesion-centri
 
 ![Figure 1](assets/main.png)
 
-## 🛠️ Setup
+## Setup
 
 ```bash
 git clone https://github.com/CUHK-AIM-Group/U-KAN.git
