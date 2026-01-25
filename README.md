@@ -15,10 +15,17 @@ Deep models can be confident for the wrong reasons: under shortcut learning, int
 - Evidence–confidence alignment rather than capacity inflation: IdenGate improves calibration, risk–coverage, and lesion-centric evidence aggregation across eight MedMNIST tasks and three external clinical datasets, with task-dependent gains consistent with morphology-driven reliability.
 - Human-validated decision support benefits: in a randomized cross-over reader study on RetinaMNIST, IdenGate-assisted evidence increased clinician confidence without increasing decision time, improved confidence–accuracy calibration, and reduced safety-critical high-confidence errors.
 
-## 📚 Data Preparation and Model Evaluation
+
+## 📦 Data Preparation and Model Evaluation
 **MedMNIST**: The dataset can be found **[here](https://medmnist.com/)**.
 
-**Retinamnist_224**: The dataset can be found **[here](https://drive.google.com/file/d/1073VltJ3iwURdtSqMyG7qlIKpkakfp7S/view?usp=sharing)**.
+**Fetal-Planes-DB**: The dataset can be found **[here](https://zenodo.org/records/3904280)**.
+
+**CPN X-ray**: The dataset can be found **[here](https://data.mendeley.com/datasets/dvntn9yhd2/1)**.
+
+**PAD-UFES-20**: The dataset can be found **[here](https://data.mendeley.com/datasets/zr7vgbcyr2/1)**.
+
+**RetinaMNIST_224**: The dataset can be found **[here](https://drive.google.com/file/d/1073VltJ3iwURdtSqMyG7qlIKpkakfp7S/view?usp=sharing)**.
 
 We provide RetinaMNIST_224 as a lightweight demonstration dataset.
 To run the demo, simply place the dataset in the eval folder and execute eval.py.
@@ -27,6 +34,5 @@ An example output file, eval_results_example.csv, is also provided for reference
 Please note that the main codebase is developed and trained in a Linux environment, using two NVIDIA RTX 5090 GPUs.
 For demonstration convenience, we adapt the eval.py script to be compatible with Windows environments.
 
-## 📦 Notes
 
 
