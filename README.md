@@ -16,6 +16,7 @@ Deep models can be confident for the wrong reasons: under shortcut learning, int
 - Human-validated decision support benefits: in a randomized cross-over reader study on RetinaMNIST, IdenGate-assisted evidence increased clinician confidence without increasing decision time, improved confidence–accuracy calibration, and reduced safety-critical high-confidence errors.
 
 ## 🛠️ Requirements and Installation Guide
+OS and Python Requirements
 
 ```text
 Operating System: Linux 6.14.0 (x86_64, glibc 2.39)
