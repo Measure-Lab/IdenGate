@@ -11,9 +11,9 @@ Deep models can be confident for the wrong reasons: under shortcut learning, int
 
 ## 💡 Key Features
 
-- **A morphology-conditioned, near-identity gating mechanism that intervenes before Q/K/V projections to stabilize self-attention, while leaving the attention operator unchanged and enabling falsifiable, post-training mechanistic tests via a single gate-strength parameter.
-- **Evidence–confidence alignment rather than capacity inflation: IdenGate improves calibration, risk–coverage, and lesion-centric evidence aggregation across eight MedMNIST tasks and three external clinical datasets, with task-dependent gains consistent with morphology-driven reliability.
-- **Human-validated decision support benefits: in a randomized cross-over reader study on RetinaMNIST, IdenGate-assisted evidence increased clinician confidence without increasing decision time, improved confidence–accuracy calibration, and reduced safety-critical high-confidence errors.
+- A morphology-conditioned, near-identity gating mechanism that intervenes before Q/K/V projections to stabilize self-attention, while leaving the attention operator unchanged and enabling falsifiable, post-training mechanistic tests via a single gate-strength parameter.
+- Evidence–confidence alignment rather than capacity inflation: IdenGate improves calibration, risk–coverage, and lesion-centric evidence aggregation across eight MedMNIST tasks and three external clinical datasets, with task-dependent gains consistent with morphology-driven reliability.
+- Human-validated decision support benefits: in a randomized cross-over reader study on RetinaMNIST, IdenGate-assisted evidence increased clinician confidence without increasing decision time, improved confidence–accuracy calibration, and reduced safety-critical high-confidence errors.
 
 
 
