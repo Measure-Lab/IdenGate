@@ -34,8 +34,8 @@ torchvision==0.23.0+cu129
 tqdm==4.65.2
 pandas==2.3.3
 matplotlib==3.9.4
-
 ```
+Installation time may vary depending on network conditions; under the reported environment, the installation completes within 15 minutes.
 
 ## 📦 Data Preparation and Model Evaluation
 **MedMNIST**: The dataset can be found **[here](https://medmnist.com/)**.
@@ -51,6 +51,7 @@ matplotlib==3.9.4
 We provide RetinaMNIST_224 as a lightweight demonstration dataset.
 To run the demo, simply place the dataset in the eval folder and execute eval.py.
 An example output file, eval_results_example.csv, is also provided for reference.
+Under the described experimental environment, the execution time of eval.py is under 60 seconds.
 
 Please note that the main codebase is developed and trained in a Linux environment, using two NVIDIA RTX 5090 GPUs.
 For demonstration convenience, we adapt the eval.py script to be compatible with Windows environments.
