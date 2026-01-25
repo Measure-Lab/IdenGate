@@ -71,7 +71,7 @@ cd IdenGate
 
 
 # ==============================
-# 5. Register project path (NO setup.py)
+# 5. Register project path
 # ==============================
 export PYTHONPATH=$(pwd):$PYTHONPATH
 
