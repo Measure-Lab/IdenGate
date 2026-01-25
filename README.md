@@ -58,6 +58,7 @@ project_root/
 ├── eval/
 │   ├── eval.py                     # Evaluation script (demo)
 │   ├── RetinaMNIST_224.npz          # Lightweight demo dataset
+│   ├── cmanet_blood_dp_best.pth     # Pretrained model weights
 │   └── eval_results_example.csv    # Reference evaluation output
 ```
 
