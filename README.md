@@ -29,9 +29,4 @@ For demonstration convenience, we adapt the eval.py script to be compatible with
 
 ## 📦 Notes
 
-We recommend that you download the complete code and reproduce the results using the scripts in the eval folder. We provide CSV files for both the training process and the evaluation process, as well as the trained weight files.
-
-MedMNIST: https://medmnist.com/ and https://zenodo.org/records/10519652
-
-Complete code including the weight files and retina dataset: https://drive.google.com/file/d/1XxHp0Ru-RagJBk7oaZyKUAuaZXVrynEq/view?usp=sharing
 
