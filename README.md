@@ -10,6 +10,15 @@ Deep models can be confident for the wrong reasons: under shortcut learning, int
 
 ![Figure 1](assets/main.png)
 
+## 🛠️ Setup
+
+```bash
+git clone https://github.com/CUHK-AIM-Group/U-KAN.git
+cd U-KAN
+conda create -n ukan python=3.10
+conda activate ukan
+cd Seg_UKAN && pip install -r requirements.txt
+
 We recommend that you download the complete code and reproduce the results using the scripts in the eval folder. We provide CSV files for both the training process and the evaluation process, as well as the trained weight files.
 
 MedMNIST: https://medmnist.com/ and https://zenodo.org/records/10519652
