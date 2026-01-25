@@ -15,7 +15,7 @@ Deep models can be confident for the wrong reasons: under shortcut learning, int
 - Evidence–confidence alignment rather than capacity inflation: IdenGate improves calibration, risk–coverage, and lesion-centric evidence aggregation across eight MedMNIST tasks and three external clinical datasets, with task-dependent gains consistent with morphology-driven reliability.
 - Human-validated decision support benefits: in a randomized cross-over reader study on RetinaMNIST, IdenGate-assisted evidence increased clinician confidence without increasing decision time, improved confidence–accuracy calibration, and reduced safety-critical high-confidence errors.
 
-## 🛠️ Requirements
+## 🛠️ Requirements and Installation Guide
 
 ```text
 Operating System: Linux 6.14.0 (x86_64, glibc 2.39)
