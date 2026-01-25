@@ -1,3 +1,5 @@
+# The code is designed for Linux environments
+
 import os
 import time
 import csv
