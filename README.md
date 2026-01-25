@@ -48,9 +48,9 @@ Installation time may vary depending on network conditions; under the reported e
 
 **RetinaMNIST_224**: The dataset can be found **[here](https://drive.google.com/file/d/1073VltJ3iwURdtSqMyG7qlIKpkakfp7S/view?usp=sharing)**.
 
-We provide RetinaMNIST_224 as a lightweight demonstration dataset.
-To run the demo, simply place the RetinaMNIST_224 in the eval folder and execute eval.py.
-An example output file, eval_results_example.csv, is also provided for reference.
+We provide **RetinaMNIST_224** as a lightweight demonstration dataset.
+To run the demo, simply place the RetinaMNIST_224 in the **eval folder** and execute **eval.py**.
+An example output file, **eval_results_example.csv**, is also provided for reference.
 Under the described experimental environment, the execution time of eval.py is under 60 seconds.
 Due to environmental differences, the generated .csv results may not be identical to eval_results_example.csv.
 
