@@ -15,7 +15,8 @@ Deep models can be confident for the wrong reasons: under shortcut learning, int
 - Evidence–confidence alignment rather than capacity inflation: IdenGate improves calibration, risk–coverage, and lesion-centric evidence aggregation across eight MedMNIST tasks and three external clinical datasets, with task-dependent gains consistent with morphology-driven reliability.
 - Human-validated decision support benefits: in a randomized cross-over reader study on RetinaMNIST, IdenGate-assisted evidence increased clinician confidence without increasing decision time, improved confidence–accuracy calibration, and reduced safety-critical high-confidence errors.
 
-## 🛠️ Requirements
+## 🛠️ Requirements and Installation Guide
+OS and Python Requirements
 
 ```text
 Operating System: Linux 6.14.0 (x86_64, glibc 2.39)
@@ -36,6 +37,53 @@ pandas==2.3.3
 matplotlib==3.9.4
 ```
 Installation time may vary depending on network conditions; under the reported environment, the installation completes within 15 minutes.
+```text
+# ==============================
+# 1. Create conda environment
+# ==============================
+conda create -n idengate python=3.10 -y
+conda activate idengate
+
+
+# ==============================
+# 2. Install PyTorch (CUDA 12.9)
+# ==============================
+pip install torch==2.8.0+cu129 torchvision==0.23.0+cu129 \
+  --index-url https://download.pytorch.org/whl/cu129
+
+
+# ==============================
+# 3. Install other dependencies
+# ==============================
+pip install \
+  numpy==1.26.4 \
+  scikit-learn==1.6.1 \
+  thop==0.1.1-2209072238 \
+  tqdm==4.65.2 \
+  pandas==2.3.3 \
+  matplotlib==3.9.4
+
+
+# ==============================
+# 4. Clone IdenGate repository
+# ==============================
+git clone https://github.com/Measure-Lab/IdenGate.git
+cd IdenGate
+
+
+# ==============================
+# 5. Register project root
+# ==============================
+# Required for running evaluation scripts directly
+export PYTHONPATH=$(pwd):$PYTHONPATH
+
+
+# ==============================
+# 6. Run evaluation (Please read Data Preparation and Model Evaluation first)
+# ==============================
+python eval/eval_retina.py
+```
+Please note that the main codebase is developed and trained in a Linux environment, using two NVIDIA RTX 5090 GPUs. For demonstration convenience, we adapt the eval.py script to be compatible with a Windows environment.
 
 ## 📦 Data Preparation and Model Evaluation
 **MedMNIST**: The dataset can be found **[here](https://medmnist.com/)**.
@@ -61,9 +109,8 @@ project_root/
 │   ├── cmanet_blood_dp_best.pth     # Pretrained model weights
 │   └── eval_results_example.csv     # Reference evaluation output
 ```
+We recommend using Anaconda and PyCharm to run the eval.py file.
 
-Please note that the main codebase is developed and trained in a Linux environment, using two NVIDIA RTX 5090 GPUs.
-For demonstration convenience, we adapt the eval.py script to be compatible with a Windows environment.
 
 
 
