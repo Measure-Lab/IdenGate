@@ -1,7 +1,5 @@
 # Near-identity gating aligns model evidence and confidence in medical imaging
 
-# Near-identity gating aligns model evidence and confidence in medical imaging
-
 📌 **IdenGate** is a morphology-conditioned, near-identity inductive bias that stabilizes self-attention by gating token embeddings before the Q/K/V projections.
 It improves **calibration** and **risk–coverage**, yields more **lesion-centric evidence**, and better aligns **model confidence** with internal evidence—supporting **safer human–AI decision-making**.
 
