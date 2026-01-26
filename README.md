@@ -112,13 +112,13 @@ project_root/
 We recommend using Anaconda and PyCharm to run the eval.py file.
 
 ## 📁 Repository Structure
-ablation/: Contains code used for ablation studies, enabling analysis of the impact of individual components and design choices on model performance.
+ablation: Contains code used for ablation studies, enabling analysis of the impact of individual components and design choices on model performance.
 
-assets/: Stores image and visualization assets used in the GitHub README.
+assets: Stores image and visualization assets used in the GitHub README.
 
-baselines/: Includes implementations of baseline models used for comparative experiments.
+baselines: Includes implementations of baseline models used for comparative experiments.
 
-eval/: Provides evaluation and reproducibility scripts, with code that can be directly executed under a Windows environment for result reproduction.
+eval: Provides evaluation and reproducibility scripts, with code that can be directly executed under a Windows environment for result reproduction.
 
-figure/: Contains scripts for generating figures presented in the paper, along with the corresponding raw .csv data files.
+figure: Contains scripts for generating figures presented in the paper, along with the corresponding raw .csv data files.
 
