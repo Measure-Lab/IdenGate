@@ -1,0 +1,10 @@
+model_name,accuracy,highlight,ci_lower,ci_upper,n_samples
+IdenGate (Ours),56.3,green,49.551,63.063,400
+SwinTrans-T,60.6,blue,54.715,66.752,400
+ConvNeXt-T,57.5,none,51.414,64.15,400
+MedViT V1-T,53.4,none,46.561,60.539,400
+Google AutoML,53.1,none,46.677,59.452,400
+AutoKeras,50.3,none,43.651,57.316,400
+auto-sklearn,51.5,none,44.542,58.559,400
+ResNet-50,51.1,none,44.037,58.015,400
+ResNet-18,49.3,none,43.328,56.346,400
