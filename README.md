@@ -39,7 +39,7 @@ matplotlib==3.9.4
 Installation time may vary depending on network conditions; under the reported environment, the installation completes within 15 minutes.
 ```text
 # ==============================
-# 1. Create conda environment
+# 1. Create Anaconda environment
 # ==============================
 conda create -n idengate python=3.10 -y
 conda activate idengate
