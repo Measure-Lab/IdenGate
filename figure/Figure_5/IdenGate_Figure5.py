@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 # ============================================================
 # 0) PATHS
 # ============================================================
-BASE_DIR = r"file_name"
+# BASE_DIR = r"file_name"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CSV_NAME = "readerstudy_400rows.csv"
 
 OUT_PNG = os.path.join(BASE_DIR, "Figure5_fourpanel.png")
