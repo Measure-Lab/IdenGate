@@ -1,0 +1,5 @@
+﻿comparison,parameter_count,parameter_count_millions,idengate_reference_parameter_count,delta_vs_idengate_parameters
+MGF->No-MGF,2350689,2.350689,2353377,-2688
+MGF->Shuffle-MGF,2353377,2.353377,2353377,0
+CSA->8head-SA,2353377,2.353377,2353377,0
+ALME->ResNet18,3800389,3.800389,2353377,1447012
