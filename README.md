@@ -25,7 +25,7 @@ IDENGATE combines three components:
 The resulting architecture converts fixed Q/K/V projections into image-specific effective projections while retaining the standard attention operator.
 
 <p align="center">
-  <img src="assets/main.png" width="900" alt="IDENGATE overview">
+  <img src="assets/architecture.png" width="900" alt="IDENGATE overview">
 </p>
 
 ---
