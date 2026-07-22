@@ -1,20 +1,4 @@
 """Fixed-checkpoint role-specific identity interventions for IDENGATE.
-
-This script reproduces the protocol underlying Table II of the manuscript.
-For each seed-matched Full checkpoint, selected Q/K/V gates are replaced by
-exact identity at inference. Inputs, model parameters, normalization
-statistics, ALME/descriptor computations, and all non-selected gates remain
-fixed.
-
-For each state:
-
-* accuracy and one-vs-rest macro-AUC use uncalibrated test probabilities;
-* a scalar temperature is fitted to that state's validation logits by
-  negative-log-likelihood minimization;
-* 10-bin ECE is evaluated on temperature-scaled test probabilities;
-* AURC uses raw maximum-softmax confidence;
-* prediction changes are measured relative to the Full state;
-* deltas and nominal paired 95% CIs are computed across seeds 42-46.
 """
 
 from __future__ import annotations
