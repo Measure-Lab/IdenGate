@@ -28,18 +28,6 @@ def _normalize_roles(roles: Iterable[str] | None) -> frozenset[str]:
 @dataclass(frozen=True)
 class GateState:
     """Inference-time gate configuration.
-
-    Attributes
-    ----------
-    alpha:
-        Global gate amplitude. The primary learned-gate state uses 0.1;
-        alpha=0.0 is the exact same-checkpoint identity state.
-    identity_roles:
-        Selected roles whose learned gates are replaced by exact identity.
-    shuffle:
-        If true, apply one mini-batch permutation jointly to the Q/K/V gate
-        tuple, preserving the batch gate-vector multiset while breaking the
-        image-gate correspondence.
     """
 
     alpha: float = 0.1
@@ -64,17 +52,6 @@ class GateState:
 
 class ALME(nn.Module):
     """Adaptive Local Mapping Encoder (paper Eq. 6).
-
-    Given a feature map F, ALME computes
-
-        Z      = BN(DWConv3x3(F))
-        s      = sigmoid(h(GAP(Z)))
-        F_hat  = Conv1x1(Z * s)
-        m      = GAP(F_hat)
-
-    The convolutional biases are disabled in the depthwise and final
-    pointwise transforms. This is required for the exact parameter counts
-    reported in the paper.
     """
 
     def __init__(self, dim: int, reduction: int = 16) -> None:
@@ -118,10 +95,6 @@ class ALME(nn.Module):
 
 class ModulatedGatingFunction(nn.Module):
     """Role-specific unit-centered MGF (paper Eqs. 7-9).
-
-    A depthwise 1x1 convolution on a pooled descriptor is exactly an
-    elementwise affine transform a_r * m + b_r. Separate modules are learned
-    for Q, K, and V.
     """
 
     def __init__(self, dim: int) -> None:
@@ -172,14 +145,6 @@ class ModulatedGatingFunction(nn.Module):
 
 class ConditionedSelfAttention(nn.Module):
     """Conditioned Self-Attention (CSA).
-
-    Gates multiply the shared input-channel coordinates before the internal
-    MultiheadAttention Q/K/V projections, implementing
-
-        Q = X D_Q W_Q, K = X D_K W_K, V = X D_V W_V.
-
-    The scaled dot-product attention operator, output projection, residual
-    paths, normalization layers, and feed-forward network are unchanged.
     """
 
     def __init__(
@@ -318,10 +283,6 @@ class IDENGATEBlock(nn.Module):
 
 class IDENGATE(nn.Module):
     """Three-stage IDENGATE classifier.
-
-    Parameters default to the primary RetinaMNIST model reported in the
-    manuscript: three blocks, four heads per block, MLP ratio 2, alpha=0.1,
-    five output classes, and no pretraining.
     """
 
     def __init__(
