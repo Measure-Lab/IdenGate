@@ -1,24 +1,4 @@
 """IDENGATE model definition.
-
-This module implements the architecture described in:
-
-    IDENGATE: Bounded Role-Specific Preprojection Gating with
-    Exact Identity Control for Medical Image Classification
-
-The implementation keeps the original three-stage network topology while
-making the paper's intervention semantics explicit:
-
-* MGF ON: alpha=0.1, learned role-specific gates.
-* MGF OFF: alpha=0.0 in the same checkpoint.
-* no-MGF: a separately instantiated and trained model with no MGF parameters.
-* Role intervention: selected Q/K/V gates are set to exact identity at
-  inference while all other computations remain unchanged.
-* Shuffle-MGF: the batch gate-vector tuples are permuted to break the
-  image-gate correspondence while preserving the mini-batch multiset.
-
-The primary three-block, five-class model has exactly 2,353,377 trainable
-parameters. The no-MGF control has exactly 2,350,689 trainable parameters,
-matching the counts reported in the manuscript.
 """
 
 from __future__ import annotations
