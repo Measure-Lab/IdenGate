@@ -93,7 +93,7 @@ The study is explicitly exploratory. It was not designed to establish clinical n
 ## 4. Summary figure
 
 <p align="center">
-  <img src="../assets/reader_study.png" width="960" alt="Exploratory IDENGATE reader-study results">
+  <img src="assets/Figure_S3_reader_study.png" width="960" alt="Exploratory IDENGATE reader-study results">
 </p>
 
 The figure contains four panels:
