@@ -1,22 +1,4 @@
 """Train IDENGATE on the official RetinaMNIST NPZ splits.
-
-The default configuration reproduces the five-seed mechanism-study protocol
-reported in the manuscript:
-
-* official train / validation / test splits;
-* seeds 42, 43, 44, 45, and 46;
-* 60 epochs;
-* batch size 128;
-* AdamW, learning rate 3e-4, weight decay 1e-4;
-* cosine annealing with warm restarts (T0=10, Tmult=2);
-* cross-entropy loss;
-* no class weighting and no pretraining;
-* checkpoint selection by the highest validation macro-AUC;
-* test-set evaluation only after checkpoint selection.
-
-The script supports the Full, no-MGF, and Shuffle-MGF configurations. MGF OFF
-is not a training configuration: it is the alpha=0 identity state of a trained
-Full checkpoint and is evaluated by identity_intervention.py.
 """
 
 from __future__ import annotations
