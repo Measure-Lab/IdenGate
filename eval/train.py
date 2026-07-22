@@ -1,449 +1,724 @@
-# The code is designed for Linux environments
+"""Train IDENGATE on the official RetinaMNIST NPZ splits.
 
-import os
-import time
+The default configuration reproduces the five-seed mechanism-study protocol
+reported in the manuscript:
+
+* official train / validation / test splits;
+* seeds 42, 43, 44, 45, and 46;
+* 60 epochs;
+* batch size 128;
+* AdamW, learning rate 3e-4, weight decay 1e-4;
+* cosine annealing with warm restarts (T0=10, Tmult=2);
+* cross-entropy loss;
+* no class weighting and no pretraining;
+* checkpoint selection by the highest validation macro-AUC;
+* test-set evaluation only after checkpoint selection.
+
+The script supports the Full, no-MGF, and Shuffle-MGF configurations. MGF OFF
+is not a training configuration: it is the alpha=0 identity state of a trained
+Full checkpoint and is evaluated by identity_intervention.py.
+"""
+
+from __future__ import annotations
+
+import argparse
 import csv
+import hashlib
+import json
+import math
+import os
+import platform
 import random
+import sys
+import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Iterable, Sequence
+
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from sklearn.metrics import roc_auc_score
+from torch.amp import GradScaler, autocast
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
-import thop
-from torch.amp import autocast, GradScaler
-from sklearn.metrics import roc_auc_score
-import shutil
 
-NPZ_PATH = "/home/ubuntu/dataset/MedMNIST/retinamnist_224.npz"
-NUM_CLASSES = 5 # path:9 derma:7 retina:5 blood:8
-N_CHANNELS = 3
-IMG_SIZE = 224
-BATCH_SIZE = 128
-EPOCHS = 150
-AMP = True
-OUT_DIR = "./outputs"
-LOG_CSV = os.path.join(OUT_DIR, "training_log.csv")
-BEST_PTH = os.path.join(OUT_DIR, "cmanet_blood_dp_best.pth")
+from model import IDENGATE, count_trainable_parameters
 
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+PAPER_SEEDS = (42, 43, 44, 45, 46)
+EXPECTED_PRIMARY_PARAMS = 2_353_377
+EXPECTED_NO_MGF_PARAMS = 2_350_689
 
 
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.set_float32_matmul_precision("high")
+@dataclass(frozen=True)
+class TrainConfig:
+    """Complete configuration stored with every run."""
 
-def set_seed(seed=42):
-    import torch.backends.cudnn as cudnn
+    npz_path: str
+    output_dir: str
+    control: str = "full"
+    num_classes: int = 5
+    in_channels: int = 3
+    image_size: int = 224
+    epochs: int = 60
+    batch_size: int = 128
+    num_workers: int = 8
+    learning_rate: float = 3e-4
+    weight_decay: float = 1e-4
+    scheduler_t0: int = 10
+    scheduler_tmult: int = 2
+    alpha: float = 0.1
+    depth: int = 3
+    nhead: int = 4
+    mlp_ratio: int = 2
+    dropout: float = 0.1
+    reduction: int = 16
+    use_amp: bool = True
+    deterministic: bool = True
+    allow_tf32: bool = True
+    data_parallel: bool = True
+    crop_padding: int = 16
+    horizontal_flip: bool = True
+    normalization_mean: tuple[float, float, float] = (0.5, 0.5, 0.5)
+    normalization_std: tuple[float, float, float] = (0.5, 0.5, 0.5)
+
+
+class MedMNISTNPZDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
+    """Dataset wrapper for the official MedMNIST NPZ arrays."""
+
+    def __init__(
+        self,
+        images: np.ndarray,
+        labels: np.ndarray,
+        *,
+        image_size: int,
+        augment: bool,
+        crop_padding: int,
+        horizontal_flip: bool,
+        mean: Sequence[float],
+        std: Sequence[float],
+    ) -> None:
+        self.images = np.asarray(images)
+        self.labels = _normalize_labels(labels)
+
+        operations: list[Any] = [transforms.ToPILImage(), transforms.Resize((image_size, image_size))]
+        if augment:
+            operations.append(transforms.RandomCrop(image_size, padding=crop_padding))
+            if horizontal_flip:
+                operations.append(transforms.RandomHorizontalFlip())
+        operations.extend(
+            [
+                transforms.ToTensor(),
+                transforms.Lambda(_ensure_three_channels),
+                transforms.Normalize(list(mean), list(std)),
+            ]
+        )
+        self.transform = transforms.Compose(operations)
+
+    def __len__(self) -> int:
+        return int(self.labels.shape[0])
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        image = self.images[index]
+        if image.ndim == 3 and image.shape[0] in (1, 3) and image.shape[-1] not in (1, 3):
+            image = np.transpose(image, (1, 2, 0))
+        image = np.ascontiguousarray(image)
+        if image.dtype != np.uint8:
+            if np.issubdtype(image.dtype, np.floating) and image.max(initial=0) <= 1.0:
+                image = np.clip(image * 255.0, 0, 255)
+            image = image.astype(np.uint8)
+
+        tensor = self.transform(image)
+        target = torch.tensor(int(self.labels[index]), dtype=torch.long)
+        return tensor, target
+
+
+def _normalize_labels(labels: np.ndarray) -> np.ndarray:
+    labels = np.asarray(labels)
+    if labels.ndim == 2:
+        if labels.shape[1] == 1:
+            labels = labels[:, 0]
+        else:
+            labels = labels.argmax(axis=1)
+    elif labels.ndim != 1:
+        labels = labels.reshape(-1)
+    return labels.astype(np.int64, copy=False)
+
+
+def _ensure_three_channels(tensor: torch.Tensor) -> torch.Tensor:
+    if tensor.ndim != 3:
+        raise ValueError(f"Expected image tensor [C,H,W], got {tuple(tensor.shape)}")
+    if tensor.shape[0] == 1:
+        return tensor.repeat(3, 1, 1)
+    if tensor.shape[0] != 3:
+        raise ValueError(f"Expected one or three image channels, got {tensor.shape[0]}")
+    return tensor
+
+
+def load_official_npz_splits(npz_path: str | Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Load official train, validation, and test arrays without merging them."""
+
+    path = Path(npz_path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"NPZ file not found: {path}")
+
+    with np.load(path, allow_pickle=False) as data:
+        required = {
+            "train_images",
+            "train_labels",
+            "val_images",
+            "val_labels",
+            "test_images",
+            "test_labels",
+        }
+        missing = sorted(required.difference(data.files))
+        if missing:
+            raise KeyError(f"NPZ file is missing required arrays: {missing}")
+        splits = {
+            "train": (data["train_images"].copy(), data["train_labels"].copy()),
+            "val": (data["val_images"].copy(), data["val_labels"].copy()),
+            "test": (data["test_images"].copy(), data["test_labels"].copy()),
+        }
+
+    return splits
+
+
+def set_global_seed(seed: int, deterministic: bool, allow_tf32: bool) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    cudnn.deterministic = True
-    cudnn.benchmark = False
-set_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
 
-class BloodNPZDataset(Dataset):
-    def __init__(self, images, labels, aug=False, img_size=IMG_SIZE):
+    torch.backends.cudnn.deterministic = deterministic
+    torch.backends.cudnn.benchmark = not deterministic
+    torch.backends.cuda.matmul.allow_tf32 = bool(allow_tf32)
+    torch.backends.cudnn.allow_tf32 = bool(allow_tf32)
+    torch.set_float32_matmul_precision("high" if allow_tf32 else "highest")
 
-        self.images = images
-
-        lbl = np.array(labels)
-        if lbl.ndim == 2:
-            if lbl.shape[1] == 1:
-                lbl = lbl.squeeze(1)
-            else:
-                lbl = lbl.argmax(1)
-        elif lbl.ndim == 1:
-            pass
-        else:
-            lbl = lbl.reshape(-1)
-        self.labels = lbl.astype(np.int64)
-
-        self.img_size = img_size
-
-        aug_list = [
-            transforms.RandomCrop(img_size, padding=16),
-            transforms.RandomHorizontalFlip(),
-        ] if aug else []
+    if deterministic:
+        torch.use_deterministic_algorithms(True, warn_only=True)
 
 
-        self.tf = transforms.Compose([
-            transforms.ToPILImage(),
-            *aug_list,
-            transforms.ToTensor(),
-            transforms.Lambda(lambda t: t.repeat(3, 1, 1) if t.dim() == 3 and t.shape[0] == 1 else t),
-            transforms.Normalize([0.5]*3, [0.5]*3),
-        ])
-
-    def __len__(self):
-        return len(self.labels)
-
-    def __getitem__(self, i):
-        img = self.images[i]
-
-        if img.ndim == 3 and img.shape[0] in (1, 3) and img.shape[-1] not in (1, 3):
-            img = np.transpose(img, (1, 2, 0))
-
-        img = np.ascontiguousarray(img).astype(np.uint8)
-
-        x = self.tf(img)
-        y = torch.tensor(self.labels[i], dtype=torch.long)
-        return x, y
-
-def load_blood_npz(npz_path=NPZ_PATH):
-
-    data = np.load(npz_path)
-    x_tr, y_tr = data["train_images"], data["train_labels"]
-    x_va, y_va = data["val_images"],   data["val_labels"]
-    x_te, y_te = data["test_images"],  data["test_labels"]
-    x_tr = np.concatenate([x_tr, x_va], axis=0)
-    y_tr = np.concatenate([y_tr, y_va], axis=0)
-    return (x_tr, y_tr), (x_te, y_te)
+def _seed_worker(worker_id: int) -> None:
+    worker_seed = torch.initial_seed() % (2**32)
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 
-(x_train, y_train), (x_test, y_test) = load_blood_npz()
-trainset = BloodNPZDataset(x_train, y_train, aug=True)
-testset  = BloodNPZDataset(x_test,  y_test,  aug=False)
+def build_dataloaders(
+    config: TrainConfig,
+    seed: int,
+) -> tuple[DataLoader, DataLoader, DataLoader, dict[str, int]]:
+    splits = load_official_npz_splits(config.npz_path)
+
+    datasets = {
+        "train": MedMNISTNPZDataset(
+            *splits["train"],
+            image_size=config.image_size,
+            augment=True,
+            crop_padding=config.crop_padding,
+            horizontal_flip=config.horizontal_flip,
+            mean=config.normalization_mean,
+            std=config.normalization_std,
+        ),
+        "val": MedMNISTNPZDataset(
+            *splits["val"],
+            image_size=config.image_size,
+            augment=False,
+            crop_padding=config.crop_padding,
+            horizontal_flip=False,
+            mean=config.normalization_mean,
+            std=config.normalization_std,
+        ),
+        "test": MedMNISTNPZDataset(
+            *splits["test"],
+            image_size=config.image_size,
+            augment=False,
+            crop_padding=config.crop_padding,
+            horizontal_flip=False,
+            mean=config.normalization_mean,
+            std=config.normalization_std,
+        ),
+    }
+
+    generator = torch.Generator()
+    generator.manual_seed(seed)
+    common = {
+        "batch_size": config.batch_size,
+        "num_workers": config.num_workers,
+        "pin_memory": torch.cuda.is_available(),
+        "persistent_workers": config.num_workers > 0,
+        "worker_init_fn": _seed_worker,
+    }
+    if config.num_workers > 0:
+        common["prefetch_factor"] = 2
+
+    train_loader = DataLoader(
+        datasets["train"],
+        shuffle=True,
+        generator=generator,
+        **common,
+    )
+    val_loader = DataLoader(datasets["val"], shuffle=False, **common)
+    test_loader = DataLoader(datasets["test"], shuffle=False, **common)
+    sizes = {name: len(dataset) for name, dataset in datasets.items()}
+    return train_loader, val_loader, test_loader, sizes
 
 
-NUM_WORKERS = 8
-train_loader = DataLoader(
-    trainset, batch_size=BATCH_SIZE, shuffle=True,
-    num_workers=NUM_WORKERS, pin_memory=True,
-    persistent_workers=(NUM_WORKERS > 0), prefetch_factor=2
-)
-test_loader  = DataLoader(
-    testset, batch_size=BATCH_SIZE, shuffle=False,
-    num_workers=NUM_WORKERS, pin_memory=True,
-    persistent_workers=(NUM_WORKERS > 0), prefetch_factor=2
-)
+def build_model(config: TrainConfig) -> IDENGATE:
+    if config.control not in {"full", "no_mgf", "shuffle_mgf"}:
+        raise ValueError(f"Unsupported control: {config.control}")
 
-class ALME(nn.Module):
+    model = IDENGATE(
+        num_classes=config.num_classes,
+        in_channels=config.in_channels,
+        depth=config.depth,
+        base_dim=64,
+        reduction=config.reduction,
+        nhead=config.nhead,
+        mlp_ratio=config.mlp_ratio,
+        dropout=config.dropout,
+        alpha=config.alpha,
+        use_mgf=config.control != "no_mgf",
+    )
 
-    def __init__(self, dim, reduction=16):
-        super().__init__()
-        self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, groups=dim)
-        self.bn = nn.BatchNorm2d(dim)
-        self.se = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(dim, dim // reduction, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(dim // reduction, dim, 1),
-            nn.Sigmoid()
-        )
-        self.proj = nn.Conv2d(dim, dim, 1)
-    def forward(self, x):
-        z = self.dwconv(x)
-        z = self.bn(z)
-        z = z * self.se(z)
-        z = self.proj(z)
-        return z
-
-class ConditionedSelfAttention(nn.Module):
-
-    def __init__(self, dim, nhead=4, mlp_ratio=4, dropout=0.1, use_conditioned=True, alpha=0.1):
-        super().__init__()
-        self.encoder = nn.TransformerEncoderLayer(
-            d_model=dim, nhead=nhead, dim_feedforward=dim*mlp_ratio, dropout=dropout
-        )
-        self.use_conditioned = use_conditioned
-        self.alpha = alpha
-        self.gq = nn.Conv2d(dim, dim, 1, groups=dim, bias=True)
-        self.gk = nn.Conv2d(dim, dim, 1, groups=dim, bias=True)
-        self.gv = nn.Conv2d(dim, dim, 1, groups=dim, bias=True)
-        for m in [self.gq, self.gk, self.gv]:
-            nn.init.zeros_(m.weight); nn.init.zeros_(m.bias)
-    def forward(self, x):
-        b, c, h, w = x.shape
-        seq = x.view(b, c, h*w).permute(2, 0, 1)
-        if not self.use_conditioned:
-            out = self.encoder(seq)
-            return out.permute(1, 2, 0).view(b, c, h, w)
-        pooled = x.mean(dim=(2,3), keepdim=True)
-        phi_q = 1.0 + self.alpha*torch.tanh(self.gq(pooled)).view(b, c)
-        phi_k = 1.0 + self.alpha*torch.tanh(self.gk(pooled)).view(b, c)
-        phi_v = 1.0 + self.alpha*torch.tanh(self.gv(pooled)).view(b, c)
-        phi_q, phi_k, phi_v = phi_q.unsqueeze(0), phi_k.unsqueeze(0), phi_v.unsqueeze(0)
-        enc = self.encoder
-        q, k, v = seq*phi_q, seq*phi_k, seq*phi_v
-        attn_out, _ = enc.self_attn(q, k, v, need_weights=False)
-        src = seq + enc.dropout1(attn_out)
-        src = enc.norm1(src)
-        ffn_out = enc.linear2(enc.dropout(enc.activation(enc.linear1(src))))
-        src = src + enc.dropout2(ffn_out)
-        src = enc.norm2(src)
-        return src.permute(1, 2, 0).view(b, c, h, w)
-
-class CMABlock(nn.Module):
-
-    def __init__(self, dim, reduction=16):
-        super().__init__()
-        self.alme = ALME(dim, reduction)
-        self.attn = ConditionedSelfAttention(dim)
-    def forward(self, x):
-        return x + self.attn(self.alme(x))
-
-class CMANet(nn.Module):
-
-    def __init__(self, num_classes=NUM_CLASSES, n_channels=N_CHANNELS):
-        super().__init__()
-        self.stem = nn.Sequential(
-            nn.Conv2d(n_channels, 64, 3, 1, 1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
-        self.stage1 = nn.Sequential(
-            CMABlock(64),
-            nn.Conv2d(64, 128, 3, 2, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True)
-        )
-        self.stage2 = nn.Sequential(
-            CMABlock(128),
-            nn.Conv2d(128, 256, 3, 2, 1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True)
-        )
-        self.stage3 = nn.Sequential(
-            CMABlock(256),
-            nn.Conv2d(256, 512, 3, 2, 1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True)
-        )
-        self.gap = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(512, num_classes)
-    def forward(self, x):
-        x = self.stem(x)
-        x = self.stage1(x)
-        x = self.stage2(x)
-        x = self.stage3(x)
-        x = self.gap(x).flatten(1)
-        return self.fc(x)
+    parameter_count = count_trainable_parameters(model)
+    if config.depth == 3 and config.num_classes == 5 and config.in_channels == 3:
+        expected = EXPECTED_NO_MGF_PARAMS if config.control == "no_mgf" else EXPECTED_PRIMARY_PARAMS
+        if parameter_count != expected:
+            raise RuntimeError(
+                f"Parameter-count mismatch: expected {expected:,}, observed {parameter_count:,}"
+            )
+    return model
 
 
-def compute_model_metrics_single(model):
+def unwrap_model(model: nn.Module) -> nn.Module:
+    return model.module if isinstance(model, nn.DataParallel) else model
 
-    sample = torch.randn(1, N_CHANNELS, IMG_SIZE, IMG_SIZE, device=DEVICE)
+
+def model_forward(model: nn.Module, images: torch.Tensor, control: str) -> torch.Tensor:
+    return model(images, shuffle_gates=(control == "shuffle_mgf"))
+
+
+def compute_macro_auc(labels: np.ndarray, probabilities: np.ndarray) -> float:
+    """One-vs-rest macro-AUC, as defined in the manuscript."""
+
+    labels = np.asarray(labels).reshape(-1)
+    probabilities = np.asarray(probabilities)
     try:
-        flops, params = thop.profile(model, inputs=(sample,), verbose=False)
-        print(f" Model FLOPs: {flops/1e9:.2f} G, Params: {params/1e6:.2f} M")
-    except Exception as e:
-        print(f"[WARN] thop fail：{e}")
+        if probabilities.shape[1] == 2:
+            return float(roc_auc_score(labels, probabilities[:, 1]))
+        return float(
+            roc_auc_score(
+                labels,
+                probabilities,
+                multi_class="ovr",
+                average="macro",
+            )
+        )
+    except ValueError:
+        return float("nan")
 
 
-def train_one_epoch(model, loader, optimizer, scaler, criterion, device, use_amp: bool):
+def collect_predictions(
+    model: nn.Module,
+    loader: DataLoader,
+    criterion: nn.Module,
+    device: torch.device,
+    use_amp: bool,
+    control: str,
+    description: str,
+) -> dict[str, Any]:
+    model.eval()
+    total_loss = 0.0
+    total_examples = 0
+    logits_parts: list[torch.Tensor] = []
+    label_parts: list[torch.Tensor] = []
 
+    with torch.inference_mode():
+        for images, labels in tqdm(loader, desc=description, leave=False):
+            images = images.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
+            with autocast(device_type=device.type, enabled=use_amp):
+                logits = model_forward(model, images, control)
+                loss = criterion(logits, labels)
+
+            batch_size = labels.shape[0]
+            total_loss += float(loss.item()) * batch_size
+            total_examples += batch_size
+            logits_parts.append(logits.float().cpu())
+            label_parts.append(labels.cpu())
+
+    logits = torch.cat(logits_parts, dim=0)
+    labels = torch.cat(label_parts, dim=0)
+    probabilities = torch.softmax(logits, dim=1).numpy()
+    labels_np = labels.numpy()
+    predictions = probabilities.argmax(axis=1)
+
+    accuracy = 100.0 * float(np.mean(predictions == labels_np))
+    macro_auc = compute_macro_auc(labels_np, probabilities)
+    return {
+        "loss": total_loss / max(total_examples, 1),
+        "accuracy_pct": accuracy,
+        "macro_auc": macro_auc,
+        "macro_auc_pct": 100.0 * macro_auc if np.isfinite(macro_auc) else float("nan"),
+        "logits": logits,
+        "labels": labels,
+    }
+
+
+def train_one_epoch(
+    model: nn.Module,
+    loader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
+    criterion: nn.Module,
+    device: torch.device,
+    use_amp: bool,
+    control: str,
+) -> dict[str, float]:
     model.train()
-    running_loss, running_correct, total = 0.0, 0, 0
-    for x, y in tqdm(loader, desc="Train", leave=False):
-        x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
+    total_loss = 0.0
+    total_correct = 0
+    total_examples = 0
+
+    for images, labels in tqdm(loader, desc="train", leave=False):
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
-        with autocast(device_type='cuda', enabled=use_amp):
-            out = model(x)
-            loss = criterion(out, y)
+
+        with autocast(device_type=device.type, enabled=use_amp):
+            logits = model_forward(model, images, control)
+            loss = criterion(logits, labels)
+
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
-        running_loss += loss.item()
-        pred = out.argmax(1)
-        running_correct += (pred == y).sum().item()
-        total += y.size(0)
-    avg_loss = running_loss / max(1, len(loader))
-    acc = 100.0 * running_correct / max(1, total)
-    return avg_loss, acc
 
-@torch.no_grad()
-def evaluate(model, loader, criterion, device, use_amp: bool):
+        batch_size = labels.shape[0]
+        total_loss += float(loss.item()) * batch_size
+        total_correct += int((logits.argmax(dim=1) == labels).sum().item())
+        total_examples += batch_size
 
-    model.eval()
-    running_loss, running_correct, total = 0.0, 0, 0
-
-    cls_correct = np.zeros(NUM_CLASSES, dtype=np.int64)
-    cls_total   = np.zeros(NUM_CLASSES, dtype=np.int64)
-
-    all_probs = []
-    all_y = []
-
-    for x, y in tqdm(loader, desc="Eval", leave=False):
-        x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
-        with autocast(device_type='cuda', enabled=use_amp):
-            out = model(x)
-            loss = criterion(out, y)
-            probs = torch.softmax(out, dim=1)
-
-        running_loss += loss.item()
-
-        pred = out.argmax(1)
-        running_correct += (pred == y).sum().item()
-        total += y.size(0)
-
-        for cls in range(NUM_CLASSES):
-            mask = (y == cls)
-            if mask.any():
-                cls_total[cls]   += mask.sum().item()
-                cls_correct[cls] += (pred[mask] == y[mask]).sum().item()
-
-        all_probs.append(probs.detach().cpu().numpy())
-        all_y.append(y.detach().cpu().numpy())
-
-    avg_loss = running_loss / max(1, len(loader))
-    acc = 100.0 * running_correct / max(1, total)
-
-    per_class_acc = []
-    for cls in range(NUM_CLASSES):
-        if cls_total[cls] > 0:
-            per_class_acc.append(100.0 * cls_correct[cls] / cls_total[cls])
-        else:
-            per_class_acc.append(float('nan'))
+    return {
+        "loss": total_loss / max(total_examples, 1),
+        "accuracy_pct": 100.0 * total_correct / max(total_examples, 1),
+    }
 
 
-    all_probs = np.concatenate(all_probs, axis=0)
-    all_y = np.concatenate(all_y, axis=0)
-
-    if all_y.ndim == 2:
-        if all_y.shape[1] == all_probs.shape[1]:
-            all_y = all_y.argmax(axis=1)
-        else:
-            all_y = all_y.squeeze()
-
-    try:
-        C = all_probs.shape[1]
-        if C == 2:
-            y_score = all_probs[:, 1]
-            auc_macro = roc_auc_score(all_y, y_score)
-            auc_weighted = auc_macro
-            auc_per_class = [
-                roc_auc_score(all_y, 1.0 - y_score),
-                roc_auc_score(all_y, y_score)
-            ]
-        else:
-            auc_macro = roc_auc_score(all_y, all_probs, multi_class='ovr', average='macro')
-            auc_weighted = roc_auc_score(all_y, all_probs, multi_class='ovr', average='weighted')
-            auc_per_class = roc_auc_score(all_y, all_probs, multi_class='ovr', average=None).tolist()
-    except Exception as e:
-        print(f"[WARN] AUC fail：{e}")
-        auc_macro, auc_weighted = float('nan'), float('nan')
-        auc_per_class = [float('nan')] * all_probs.shape[1]
+def sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
-    return avg_loss, acc, per_class_acc, auc_macro, auc_weighted, auc_per_class
-
-def build_csv_header():
-    header = ["epoch", "train_loss", "train_acc", "test_loss", "test_acc", "lr", "epoch_time_sec"]
-    header += [f"test_acc_c{i}" for i in range(NUM_CLASSES)]
-    header += ["test_auc_macro", "test_auc_weighted"]
-    header += [f"test_auc_c{i}" for i in range(NUM_CLASSES)]
-    return header
-
-def write_csv_header(path):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    if not os.path.exists(path):
-        with open(path, "w", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(build_csv_header())
-
-def append_csv_row(path, row):
-    with open(path, "a", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(row)
-
-if __name__ == "__main__":
-    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0,1")
-    os.makedirs(OUT_DIR, exist_ok=True)
+def environment_manifest() -> dict[str, Any]:
+    return {
+        "python": sys.version,
+        "platform": platform.platform(),
+        "torch": torch.__version__,
+        "numpy": np.__version__,
+        "cuda_available": torch.cuda.is_available(),
+        "cuda_version": torch.version.cuda,
+        "cudnn_version": torch.backends.cudnn.version(),
+        "gpu_names": [
+            torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())
+        ] if torch.cuda.is_available() else [],
+    }
 
 
-
-    try:
-        script_src = os.path.abspath(__file__)
-        base = os.path.basename(script_src)
-        snap_name = f"{os.path.splitext(base)[0]}_{time.strftime('%Y%m%d-%H%M%S')}.py"
-
-        dst_latest = os.path.join(OUT_DIR, base)        ）
-        dst_snap   = os.path.join(OUT_DIR, snap_name)
-
-        shutil.copyfile(script_src, dst_latest)
-        shutil.copyfile(script_src, dst_snap)
-        print(f"[INFO] Script copied to:\n  - {dst_latest}\n  - {dst_snap}")
-    except Exception as e:
-        print(f"[WARN] Failed to copy script: {e}")
+def _json_safe_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in metrics.items()
+        if key not in {"logits", "labels"}
+    }
 
 
+def save_checkpoint(
+    path: Path,
+    model: nn.Module,
+    config: TrainConfig,
+    seed: int,
+    epoch: int,
+    validation_metrics: dict[str, Any],
+) -> None:
+    payload = {
+        "model_state_dict": unwrap_model(model).state_dict(),
+        "model_config": {
+            "num_classes": config.num_classes,
+            "in_channels": config.in_channels,
+            "depth": config.depth,
+            "base_dim": 64,
+            "reduction": config.reduction,
+            "nhead": config.nhead,
+            "mlp_ratio": config.mlp_ratio,
+            "dropout": config.dropout,
+            "alpha": config.alpha,
+            "use_mgf": config.control != "no_mgf",
+        },
+        "training_config": asdict(config),
+        "control": config.control,
+        "seed": seed,
+        "selected_epoch": epoch,
+        "selection_metric": "validation_macro_auc",
+        "validation_metrics": _json_safe_metrics(validation_metrics),
+    }
+    torch.save(payload, path)
 
-    torch.cuda.set_device(0)
-    model = CMANet().to(DEVICE)
 
-    compute_model_metrics_single(model)
+def run_seed(config: TrainConfig, seed: int, device: torch.device) -> dict[str, Any]:
+    set_global_seed(seed, config.deterministic, config.allow_tf32)
+    seed_dir = Path(config.output_dir) / f"seed_{seed}"
+    seed_dir.mkdir(parents=True, exist_ok=True)
 
-    not_cuda = []
-    for name, p in model.named_parameters():
-        if p.device.type != "cuda":
-            not_cuda.append(("param", name, p.device))
-    for name, b in model.named_buffers():
-        if b.device.type != "cuda":
-            not_cuda.append(("buffer", name, b.device))
-    if not_cuda:
-        print("[WARN] Found tensors not on CUDA before DataParallel:")
-        for kind, name, dev in not_cuda:
-            print(f"  - {kind}: {name} @ {dev}")
-        model.to(DEVICE)
+    train_loader, val_loader, test_loader, split_sizes = build_dataloaders(config, seed)
+    model = build_model(config).to(device)
+    parameter_count = count_trainable_parameters(model)
 
-    if torch.cuda.device_count() > 1:
-        print(f"Using DataParallel with {torch.cuda.device_count()} GPUs")
-        model = nn.DataParallel(model, device_ids=[0, 1], output_device=0)
+    if config.data_parallel and torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, T_0=10, T_mult=2
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=config.learning_rate,
+        weight_decay=config.weight_decay,
     )
-    criterion = nn.CrossEntropyLoss()
-    scaler = GradScaler(device='cuda', enabled=AMP)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer,
+        T_0=config.scheduler_t0,
+        T_mult=config.scheduler_tmult,
+    )
+    criterion = nn.CrossEntropyLoss()  # No class weighting, as reported.
+    use_amp = bool(config.use_amp and device.type == "cuda")
+    scaler = GradScaler("cuda", enabled=use_amp)
 
-    write_csv_header(LOG_CSV)
+    checkpoint_path = seed_dir / "best_validation_macro_auc.pt"
+    history_path = seed_dir / "history.csv"
+    best_auc = -math.inf
+    best_epoch = -1
+    history: list[dict[str, Any]] = []
 
-    best_acc = 0.0
-    for epoch in range(1, EPOCHS + 1):
-        t0 = time.time()
-
-        train_loss, train_acc = train_one_epoch(
-            model, train_loader, optimizer, scaler, criterion, DEVICE, AMP
+    for epoch in range(1, config.epochs + 1):
+        start = time.perf_counter()
+        train_metrics = train_one_epoch(
+            model,
+            train_loader,
+            optimizer,
+            scaler,
+            criterion,
+            device,
+            use_amp,
+            config.control,
         )
         scheduler.step()
+        val_metrics = collect_predictions(
+            model,
+            val_loader,
+            criterion,
+            device,
+            use_amp,
+            config.control,
+            description="validation",
+        )
+        elapsed = time.perf_counter() - start
 
-        test_loss, test_acc, per_cls_acc, auc_macro, auc_weighted, auc_per_class = evaluate(
-            model, test_loader, criterion, DEVICE, AMP
+        row = {
+            "epoch": epoch,
+            "train_loss": train_metrics["loss"],
+            "train_accuracy_pct": train_metrics["accuracy_pct"],
+            "val_loss": val_metrics["loss"],
+            "val_accuracy_pct": val_metrics["accuracy_pct"],
+            "val_macro_auc": val_metrics["macro_auc"],
+            "val_macro_auc_pct": val_metrics["macro_auc_pct"],
+            "learning_rate": optimizer.param_groups[0]["lr"],
+            "epoch_time_seconds": elapsed,
+        }
+        history.append(row)
+        pd.DataFrame(history).to_csv(history_path, index=False)
+
+        current_auc = val_metrics["macro_auc"]
+        if np.isfinite(current_auc) and current_auc > best_auc:
+            best_auc = float(current_auc)
+            best_epoch = epoch
+            save_checkpoint(
+                checkpoint_path,
+                model,
+                config,
+                seed,
+                epoch,
+                val_metrics,
+            )
+
+        print(
+            f"seed={seed} epoch={epoch:03d}/{config.epochs} "
+            f"train_loss={train_metrics['loss']:.5f} "
+            f"train_acc={train_metrics['accuracy_pct']:.2f}% "
+            f"val_loss={val_metrics['loss']:.5f} "
+            f"val_acc={val_metrics['accuracy_pct']:.2f}% "
+            f"val_macro_auc={val_metrics['macro_auc_pct']:.3f}% "
+            f"lr={optimizer.param_groups[0]['lr']:.8f}"
         )
 
-        lr_now = optimizer.param_groups[0]["lr"]
-        dt = time.time() - t0
+    if not checkpoint_path.is_file():
+        raise RuntimeError("No finite validation macro-AUC checkpoint was produced")
 
-        print(f"Epoch {epoch:03d} | Train {train_loss:.4f}/{train_acc:.2f}% | "
-              f"Test {test_loss:.4f}/{test_acc:.2f}% | "
-              f"AUC(macro) {auc_macro:.4f} | LR {lr_now:.6f} | {dt:.1f}s")
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    unwrap_model(model).load_state_dict(checkpoint["model_state_dict"], strict=True)
 
-        row = [
-            epoch,
-            f"{train_loss:.6f}",
-            f"{train_acc:.3f}",
-            f"{test_loss:.6f}",
-            f"{test_acc:.3f}",
-            f"{lr_now:.8f}",
-            f"{dt:.3f}",
-        ]
-        row += [f"{(a if np.isfinite(a) else float('nan')):.3f}" for a in per_cls_acc]
-        row += [f"{(auc_macro if np.isfinite(auc_macro) else float('nan')):.6f}",
-                f"{(auc_weighted if np.isfinite(auc_weighted) else float('nan')):.6f}"]
-        row += [f"{(a if np.isfinite(a) else float('nan')):.6f}" for a in auc_per_class]
+    test_metrics = collect_predictions(
+        model,
+        test_loader,
+        criterion,
+        device,
+        use_amp,
+        config.control,
+        description="test",
+    )
+    result = {
+        "seed": seed,
+        "control": config.control,
+        "selected_epoch": best_epoch,
+        "parameter_count": parameter_count,
+        "split_sizes": split_sizes,
+        "checkpoint": str(checkpoint_path),
+        "checkpoint_sha256": sha256_file(checkpoint_path),
+        "test": _json_safe_metrics(test_metrics),
+    }
 
-        append_csv_row(LOG_CSV, row)
+    with (seed_dir / "test_metrics.json").open("w", encoding="utf-8") as handle:
+        json.dump(result, handle, indent=2, ensure_ascii=False)
+    return result
 
-        if test_acc >= best_acc:
-            best_acc = test_acc
-            target = model.module if isinstance(model, nn.DataParallel) else model
-            torch.save(target.state_dict(), BEST_PTH)
 
-    print(f"Training done. Best Test Acc: {best_acc:.2f}%")
-    print(f"Best weights saved to: {BEST_PTH}")
-    print(f"CSV log saved to: {LOG_CSV}")
+def _mean_std_ci(values: Iterable[float]) -> dict[str, float]:
+    array = np.asarray(list(values), dtype=float)
+    array = array[np.isfinite(array)]
+    if array.size == 0:
+        return {"mean": float("nan"), "std": float("nan"), "ci95_low": float("nan"), "ci95_high": float("nan")}
+    mean = float(array.mean())
+    std = float(array.std(ddof=1)) if array.size > 1 else 0.0
+    if array.size == 5:
+        t_critical = 2.7764451051977987  # Student t, df=4, two-sided 95% CI.
+    elif array.size > 1:
+        # Normal approximation is used only for non-paper custom seed counts.
+        t_critical = 1.959963984540054
+    else:
+        t_critical = 0.0
+    half_width = t_critical * std / math.sqrt(array.size) if array.size else float("nan")
+    return {
+        "mean": mean,
+        "std": std,
+        "ci95_low": mean - half_width,
+        "ci95_high": mean + half_width,
+    }
+
+
+def summarize_runs(config: TrainConfig, results: list[dict[str, Any]]) -> dict[str, Any]:
+    accuracy = [result["test"]["accuracy_pct"] for result in results]
+    macro_auc = [result["test"]["macro_auc_pct"] for result in results]
+    summary = {
+        "control": config.control,
+        "seeds": [result["seed"] for result in results],
+        "n_seeds": len(results),
+        "accuracy_pct": _mean_std_ci(accuracy),
+        "macro_auc_pct": _mean_std_ci(macro_auc),
+        "runs": results,
+        "configuration": asdict(config),
+        "environment": environment_manifest(),
+        "npz_sha256": sha256_file(config.npz_path),
+    }
+
+    output_dir = Path(config.output_dir)
+    with (output_dir / "summary.json").open("w", encoding="utf-8") as handle:
+        json.dump(summary, handle, indent=2, ensure_ascii=False)
+
+    rows = []
+    for result in results:
+        rows.append(
+            {
+                "seed": result["seed"],
+                "selected_epoch": result["selected_epoch"],
+                "parameter_count": result["parameter_count"],
+                "test_accuracy_pct": result["test"]["accuracy_pct"],
+                "test_macro_auc_pct": result["test"]["macro_auc_pct"],
+                "checkpoint_sha256": result["checkpoint_sha256"],
+            }
+        )
+    pd.DataFrame(rows).to_csv(output_dir / "seed_results.csv", index=False)
+    return summary
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Train IDENGATE using the paper-aligned RetinaMNIST protocol."
+    )
+    parser.add_argument("--npz", required=True, help="Path to retinamnist_224.npz")
+    parser.add_argument("--output-dir", default="outputs/retinamnist_primary")
+    parser.add_argument(
+        "--control",
+        choices=("full", "no_mgf", "shuffle_mgf"),
+        default="full",
+    )
+    parser.add_argument("--seeds", nargs="+", type=int, default=list(PAPER_SEEDS))
+    parser.add_argument("--epochs", type=int, default=60)
+    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--num-workers", type=int, default=8)
+    parser.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--no-amp", action="store_true")
+    parser.add_argument("--no-data-parallel", action="store_true")
+    parser.add_argument("--non-deterministic", action="store_true")
+    parser.add_argument("--disable-tf32", action="store_true")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    config = TrainConfig(
+        npz_path=str(Path(args.npz).expanduser().resolve()),
+        output_dir=str(output_dir.resolve()),
+        control=args.control,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        use_amp=not args.no_amp,
+        data_parallel=not args.no_data_parallel,
+        deterministic=not args.non_deterministic,
+        allow_tf32=not args.disable_tf32,
+    )
+
+    with (output_dir / "configuration.json").open("w", encoding="utf-8") as handle:
+        json.dump(asdict(config), handle, indent=2, ensure_ascii=False)
+
+    device = torch.device(args.device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA device requested but CUDA is unavailable")
+
+    results = [run_seed(config, seed, device) for seed in args.seeds]
+    summary = summarize_runs(config, results)
+
+    print("\nCompleted paper-aligned training protocol")
+    print(f"control: {config.control}")
+    print(f"seeds: {summary['seeds']}")
+    print(
+        "test accuracy: "
+        f"{summary['accuracy_pct']['mean']:.3f} ± {summary['accuracy_pct']['std']:.3f}%"
+    )
+    print(
+        "test macro-AUC: "
+        f"{summary['macro_auc_pct']['mean']:.3f} ± {summary['macro_auc_pct']['std']:.3f}%"
+    )
+
+
+if __name__ == "__main__":
+    main()
