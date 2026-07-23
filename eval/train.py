@@ -1,24 +1,4 @@
 """Train IDENGATE on MedMNIST-format NPZ datasets.
-
-The default values reproduce the RetinaMNIST protocol reported in the manuscript.
-
-Default protocol
-----------------
-* official train / validation / test splits are kept separate;
-* seeds 42, 43, 44, 45, 46;
-* 60 epochs;
-* batch size 128;
-* AdamW, learning rate 3e-4, weight decay 1e-4;
-* CosineAnnealingWarmRestarts(T_0=10, T_mult=2);
-* cross-entropy loss;
-* no class weighting;
-* no pretraining;
-* best checkpoint selected by validation macro-AUC;
-* test split evaluated once, after checkpoint selection.
-
-The script supports the primary model, separately trained no-MGF control, and
-Shuffle-MGF control.  MGF OFF is not a training condition; it is alpha=0 in a
-trained primary checkpoint and belongs in the fixed-checkpoint analysis.
 """
 
 from __future__ import annotations
