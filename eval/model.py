@@ -1,27 +1,4 @@
-"""Official IDENGATE model definition used by the public reproduction code.
-
-The module implements the architecture and intervention semantics described in
-
-    IDENGATE: Bounded Role-Specific Preprojection Gating with Exact Identity
-    Control for Medical Image Classification.
-
-The three-block RetinaMNIST configuration has exactly 2,353,377 trainable
-parameters.  The separately instantiated no-MGF control has 2,350,689.
-
-Terminology
------------
-MGF ON
-    Learned-gate state of a trained IDENGATE checkpoint, alpha=0.1.
-MGF OFF
-    Exact identity-gate state of the same checkpoint, alpha=0.
-no-MGF
-    Separately trained architecture in which MGF parameters do not exist.
-Shuffle-MGF
-    Mini-batch gate tuples are permuted jointly across Q/K/V, preserving the
-    mini-batch multiset while breaking image-gate correspondence.
-
-The class/module names intentionally retain compatibility with the early public
-scripts (CMANet, CMABlock, stage1/stage2/stage3, encoder, gq/gk/gv).
+"""Official IDENGATE model
 """
 
 from __future__ import annotations
