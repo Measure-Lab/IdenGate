@@ -1,0 +1,9 @@
+[
+  "tests/test_release.py::test_224_geometry_is_feasible_and_explicit",
+  "tests/test_release.py::test_exact_identity_equivalence",
+  "tests/test_release.py::test_gate_bounds",
+  "tests/test_release.py::test_no_mgf_has_no_gate_parameters",
+  "tests/test_release.py::test_parameter_counts",
+  "tests/test_release.py::test_selected_intervention_only_replaces_selected_role",
+  "tests/test_release.py::test_shuffle_preserves_joint_batch_multiset"
+]
