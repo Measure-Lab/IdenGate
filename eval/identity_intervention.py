@@ -1,9 +1,4 @@
 """Fixed-checkpoint Q/K/V identity interventions for IDENGATE Table II.
-
-For every state, the checkpoint, input order, ALME descriptor computation,
-normalization statistics, projection weights and non-intervened gates remain
-fixed.  Each state's temperature is fitted on its own validation logits for
-10-bin ECE evaluation.  AURC uses raw maximum-softmax confidence.
 """
 
 from __future__ import annotations
